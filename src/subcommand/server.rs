@@ -285,6 +285,7 @@ impl Server {
         .route("/blockhash/{height}", get(r::block_hash_from_height_string))
         .route("/blockheight", get(r::blockheight_string))
         .route("/blocktime", get(r::blocktime_string))
+        .route("/r/block/{query}", get(r::block))
         .route("/r/blockhash", get(r::blockhash))
         .route("/r/blockhash/{height}", get(r::blockhash_at_height))
         .route("/r/blockheight", get(r::blockheight_string))
@@ -4369,6 +4370,118 @@ mod tests {
 </ul>.*"
       ),
     );
+  }
+
+  #[test]
+  fn recursive_block_hex_endpoint_for_genesis_block() {
+    let server = TestServer::new();
+    let block = bitcoin::blockdata::constants::genesis_block(Network::Bitcoin);
+
+    let response = server.get("/r/block/0");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+      response.headers().get(header::CONTENT_TYPE).unwrap(),
+      "application/json"
+    );
+
+    let body = response.text().unwrap();
+    assert_eq!(
+      body,
+      concat!(
+        "\"010000000000000000000000000000000000000000000000000000000000000000000000",
+        "3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a",
+        "29ab5f49ffff001d1dac2b7c01",
+        "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff",
+        "4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73",
+        "ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000\"",
+      )
+    );
+
+    let by_height = serde_json::from_str::<String>(&body).unwrap();
+    let by_hash = server.get_json::<String>(format!("/r/block/{}", block.block_hash()));
+
+    assert_eq!(by_height, by_hash);
+    assert_eq!(
+      consensus::encode::deserialize::<Block>(&hex::decode(by_height).unwrap()).unwrap(),
+      block
+    );
+  }
+
+  #[test]
+  fn recursive_block_hex_endpoint_for_mined_block() {
+    let server = TestServer::new();
+    let block = server.mine_blocks(1).remove(0);
+
+    let by_height = server.get_json::<String>("/r/block/1");
+    let by_hash = server.get_json::<String>(format!("/r/block/{}", block.block_hash()));
+
+    assert_eq!(by_height, by_hash);
+    assert_eq!(by_height, consensus::encode::serialize_hex(&block));
+    assert_eq!(
+      consensus::encode::deserialize::<Block>(&hex::decode(by_height).unwrap()).unwrap(),
+      block
+    );
+  }
+
+  #[test]
+  fn recursive_block_hex_endpoint_preserves_transactions_and_witnesses() {
+    let server = TestServer::new();
+    server.mine_blocks(1);
+
+    let mut witness = Witness::default();
+    witness.push([1, 2, 3]);
+
+    server.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(1, 0, 0, witness.clone())],
+      ..default()
+    });
+
+    let block = server.mine_blocks(1).remove(0);
+    assert_eq!(block.txdata.len(), 2);
+    assert_eq!(block.txdata[1].input[0].witness, witness);
+
+    let by_height = server.get_json::<String>("/r/block/2");
+    let by_hash = server.get_json::<String>(format!("/r/block/{}", block.block_hash()));
+
+    assert_eq!(by_height, by_hash);
+    assert_eq!(by_height, consensus::encode::serialize_hex(&block));
+    assert_eq!(
+      consensus::encode::deserialize::<Block>(&hex::decode(by_height).unwrap()).unwrap(),
+      block
+    );
+  }
+
+  #[test]
+  fn recursive_block_hex_endpoint_returns_not_found() {
+    let server = TestServer::new();
+
+    server.assert_response("/r/block/1", StatusCode::NOT_FOUND, "block 1 not found");
+
+    let hash = BlockHash::all_zeros();
+    server.assert_response(
+      format!("/r/block/{hash}"),
+      StatusCode::NOT_FOUND,
+      &format!("block {hash} not found"),
+    );
+  }
+
+  #[test]
+  fn recursive_block_hex_endpoint_rejects_invalid_queries_like_blockinfo() {
+    let server = TestServer::new();
+
+    for query in [
+      "foo",
+      "-1",
+      "4294967296",
+      "000000000000000000000000000000000000000000000000000000000000000g",
+    ] {
+      let response = server.get(format!("/r/block/{query}"));
+      let blockinfo = server.get(format!("/r/blockinfo/{query}"));
+
+      assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+      assert_eq!(response.status(), blockinfo.status());
+      assert_eq!(response.text().unwrap(), blockinfo.text().unwrap());
+    }
   }
 
   #[test]

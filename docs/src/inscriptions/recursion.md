@@ -55,6 +55,32 @@ curl -s \
 <details>
   <summary>
     <code>GET</code>
+    <code><b>/r/block/&lt;QUERY&gt;</b></code>
+  </summary>
+
+### Description
+
+The hex-encoded serialized block at the given height or block hash, returned as a
+JSON string. `<QUERY>` may be a block height or block hash.
+
+### Example (block height)
+
+```bash
+curl -s \
+  http://0.0.0.0:80/r/block/0
+```
+
+### Example (block hash)
+
+```bash
+curl -s \
+  http://0.0.0.0:80/r/block/000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f
+```
+</details>
+
+<details>
+  <summary>
+    <code>GET</code>
     <code><b>/r/blockhash</b></code>
   </summary>
 
