@@ -91,8 +91,8 @@ def flow(inputs, outputs):
     return routed, normalize(remaining), burned
 
 def coinbase(subsidy, fee_streams, outputs):
-    routed, lost, _ = flow([bare(subsidy), *fee_streams], outputs)
-    return routed, lost
+    routed, lost, burned = flow([bare(subsidy), *fee_streams], outputs)
+    return routed, lost, burned
 
 class Tests(unittest.TestCase):
     def test_split(self):
@@ -125,7 +125,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(routed, [[Span("A", 0, 50)], [Span("B", 0, 50)]])
 
     def test_fee_reenters_via_coinbase(self):
-        routed, lost = coinbase(
+        routed, lost, burned = coinbase(
             100,
             [bare(20), [Span("D", 30, 10)]],
             [Output(125), Output(5)],
@@ -133,11 +133,24 @@ class Tests(unittest.TestCase):
         self.assertEqual(routed[0], [Span(None, 0, 120), Span("D", 30, 5)])
         self.assertEqual(routed[1], [Span("D", 35, 5)])
         self.assertEqual(lost, [])
+        self.assertEqual(burned, [])
+
+    def test_coinbase_can_burn_fee_denom(self):
+        routed, lost, burned = coinbase(
+            100,
+            [[Span("D", 0, 10)]],
+            [Output(100), Output(10, True)],
+        )
+        self.assertEqual(routed[0], bare(100))
+        self.assertEqual(routed[1], declared("D", 10))
+        self.assertEqual(lost, [])
+        self.assertEqual(burned, declared("D", 10))
 
     def test_underclaimed_coinbase_loses_tail(self):
-        routed, lost = coinbase(100, [[Span("D", 0, 10)]], [Output(100)])
+        routed, lost, burned = coinbase(100, [[Span("D", 0, 10)]], [Output(100)])
         self.assertEqual(routed, [[Span(None, 0, 100)]])
         self.assertEqual(lost, [Span("D", 0, 10)])
+        self.assertEqual(burned, [])
 
 if __name__ == "__main__":
     unittest.main()
