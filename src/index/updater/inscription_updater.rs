@@ -27,6 +27,7 @@ enum Origin {
     fee: u64,
     gallery: bool,
     hidden: bool,
+    metaprotocol: Option<String>,
     parents: Vec<InscriptionId>,
     reinscription: bool,
     unbound: bool,
@@ -51,6 +52,7 @@ pub(super) struct InscriptionUpdater<'a, 'tx> {
   pub(super) inscription_number_to_sequence_number: &'a mut Table<'tx, i32, u32>,
   pub(super) latest_child_to_collection: &'a mut MultimapTable<'tx, u32, u32>,
   pub(super) lost_sats: u64,
+  pub(super) metaprotocol_to_sequence_number: &'a mut MultimapTable<'tx, &'static [u8], u32>,
   pub(super) next_sequence_number: u32,
   pub(super) reward: u64,
   pub(super) sat_to_sequence_number: &'a mut MultimapTable<'tx, u64, u32>,
@@ -204,6 +206,7 @@ impl InscriptionUpdater<'_, '_> {
             fee: 0,
             gallery: !inscription.payload.properties().gallery.is_empty(),
             hidden: inscription.payload.hidden(),
+            metaprotocol: inscription.payload.metaprotocol().map(str::to_string),
             parents: inscription.payload.parents(),
             reinscription: inscribed_offsets.contains_key(&offset),
             unbound: input_value == 0
@@ -420,6 +423,7 @@ impl InscriptionUpdater<'_, '_> {
         fee,
         gallery,
         hidden,
+        metaprotocol,
         parents,
         reinscription,
         unbound,
@@ -437,6 +441,12 @@ impl InscriptionUpdater<'_, '_> {
 
         let sequence_number = self.next_sequence_number;
         self.next_sequence_number += 1;
+
+        if let Some(metaprotocol) = metaprotocol {
+          self
+            .metaprotocol_to_sequence_number
+            .insert(metaprotocol.as_bytes(), sequence_number)?;
+        }
 
         self
           .inscription_number_to_sequence_number

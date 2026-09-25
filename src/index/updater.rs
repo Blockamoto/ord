@@ -416,6 +416,8 @@ impl Updater<'_> {
     let mut collection_to_latest_child =
       wtx.open_table(COLLECTION_SEQUENCE_NUMBER_TO_LATEST_CHILD_SEQUENCE_NUMBER)?;
     let mut gallery_sequence_numbers = wtx.open_table(GALLERY_SEQUENCE_NUMBERS)?;
+    let mut metaprotocol_to_sequence_number =
+      wtx.open_multimap_table(METAPROTOCOL_TO_SEQUENCE_NUMBER)?;
     let mut height_to_last_sequence_number = wtx.open_table(HEIGHT_TO_LAST_SEQUENCE_NUMBER)?;
     let mut home_inscriptions = wtx.open_table(HOME_INSCRIPTIONS)?;
     let mut inscription_number_to_sequence_number =
@@ -519,6 +521,7 @@ impl Updater<'_> {
       inscription_number_to_sequence_number: &mut inscription_number_to_sequence_number,
       latest_child_to_collection: &mut latest_child_to_collection,
       lost_sats,
+      metaprotocol_to_sequence_number: &mut metaprotocol_to_sequence_number,
       next_sequence_number,
       reward: Height(self.height).subsidy(),
       sat_to_sequence_number: &mut sat_to_sequence_number,

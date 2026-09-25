@@ -424,6 +424,58 @@ pub(super) async fn inscription(
   })
 }
 
+pub(super) async fn inscription_metaprotocol(
+  Extension(index): Extension<Arc<Index>>,
+  Path(inscription_id): Path<InscriptionId>,
+) -> ServerResult {
+  task::block_in_place(|| {
+    let inscription = index
+      .get_inscription_by_id(inscription_id)?
+      .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+
+    let metaprotocol = inscription
+      .metaprotocol()
+      .ok_or_not_found(|| format!("inscription {inscription_id} metaprotocol"))?;
+
+    Ok(Json(metaprotocol.to_string()).into_response())
+  })
+}
+
+pub(super) async fn metaprotocols(
+  Extension(index): Extension<Arc<Index>>,
+) -> ServerResult {
+  task::block_in_place(|| Ok(Json(index.get_metaprotocols()?).into_response()))
+}
+
+pub(super) async fn metaprotocol(
+  Extension(index): Extension<Arc<Index>>,
+  Path(metaprotocol): Path<String>,
+) -> ServerResult {
+  metaprotocol_paginated(Extension(index), Path((metaprotocol, 0))).await
+}
+
+pub(super) async fn metaprotocol_paginated(
+  Extension(index): Extension<Arc<Index>>,
+  Path((metaprotocol, page_index)): Path<(String, u32)>,
+) -> ServerResult {
+  task::block_in_place(|| {
+    let (ids, more) = index.get_metaprotocol_inscriptions_paginated(
+      &metaprotocol,
+      100,
+      page_index.into_usize(),
+    )?;
+
+    Ok(
+      Json(api::Inscriptions {
+        ids,
+        more,
+        page_index,
+      })
+      .into_response(),
+    )
+  })
+}
+
 pub(super) async fn metadata(
   Extension(index): Extension<Arc<Index>>,
   Path(inscription_id): Path<InscriptionId>,

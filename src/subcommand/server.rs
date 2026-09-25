@@ -8,7 +8,7 @@ use {
   crate::templates::{
     AddressHtml, BlockHtml, BlocksHtml, ChildrenHtml, ClockSvg, CollectionsHtml, GalleriesHtml,
     GalleryHtml, HomeHtml, InputHtml, InscriptionHtml, InscriptionsBlockHtml, InscriptionsHtml,
-    ItemHtml, OutputHtml, PageContent, PageHtml, ParentsHtml, PreviewAudioHtml, PreviewCodeHtml,
+    ItemHtml, MetaprotocolHtml, MetaprotocolsHtml, OutputHtml, PageContent, PageHtml, ParentsHtml, PreviewAudioHtml, PreviewCodeHtml,
     PreviewFontHtml, PreviewImageHtml, PreviewMarkdownHtml, PreviewModelHtml, PreviewPdfHtml,
     PreviewTextHtml, PreviewUnknownHtml, PreviewVideoHtml, RareTxt, RuneHtml, RuneNotFoundHtml,
     RunesHtml, SatHtml, SatscardHtml, TransactionHtml,
@@ -251,6 +251,12 @@ impl Server {
           get(Self::inscriptions_in_block_paginated),
         )
         .route("/inscriptions/{page}", get(Self::inscriptions_paginated))
+        .route("/metaprotocols", get(Self::metaprotocols))
+        .route("/metaprotocol/{metaprotocol}", get(Self::metaprotocol))
+        .route(
+          "/metaprotocol/{metaprotocol}/{page}",
+          get(Self::metaprotocol_paginated),
+        )
         .route("/install.sh", get(Self::install_script))
         .route("/missing", post(Self::missing).layer(body_limit))
         .route("/offer", post(Self::offer))
@@ -291,6 +297,12 @@ impl Server {
         .route("/r/blockheight", get(r::blockheight_string))
         .route("/r/blockinfo/{query}", get(r::blockinfo))
         .route("/r/blocktime", get(r::blocktime_string))
+        .route("/r/metaprotocols", get(r::metaprotocols))
+        .route("/r/metaprotocol/{metaprotocol}", get(r::metaprotocol))
+        .route(
+          "/r/metaprotocol/{metaprotocol}/{page}",
+          get(r::metaprotocol_paginated),
+        )
         .route(
           "/r/children/{inscription_id}/inscriptions",
           get(r::children_inscriptions),
@@ -329,6 +341,10 @@ impl Server {
           get(r::children_paginated),
         )
         .route("/r/inscription/{inscription_id}", get(r::inscription))
+        .route(
+          "/r/inscription/{inscription_id}/metaprotocol",
+          get(r::inscription_metaprotocol),
+        )
         .route("/r/metadata/{inscription_id}", get(r::metadata))
         .route("/r/sat/{sat_number}/at/{index}", get(r::sat_at_index))
         .route(
@@ -2041,6 +2057,75 @@ impl Server {
           children,
           prev_page,
           next_page,
+        }
+        .page(server_config)
+        .into_response()
+      })
+    })
+  }
+
+  async fn metaprotocols(
+    Extension(server_config): Extension<Arc<ServerConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    AcceptJson(accept_json): AcceptJson,
+  ) -> ServerResult {
+    task::block_in_place(|| {
+      let metaprotocols = index.get_metaprotocols()?;
+
+      Ok(if accept_json {
+        Json(metaprotocols).into_response()
+      } else {
+        MetaprotocolsHtml { metaprotocols }
+          .page(server_config)
+          .into_response()
+      })
+    })
+  }
+
+  async fn metaprotocol(
+    Extension(server_config): Extension<Arc<ServerConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(metaprotocol): Path<String>,
+    accept_json: AcceptJson,
+  ) -> ServerResult {
+    Self::metaprotocol_paginated(
+      Extension(server_config),
+      Extension(index),
+      Path((metaprotocol, 0)),
+      accept_json,
+    )
+    .await
+  }
+
+  async fn metaprotocol_paginated(
+    Extension(server_config): Extension<Arc<ServerConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path((metaprotocol, page_index)): Path<(String, u32)>,
+    AcceptJson(accept_json): AcceptJson,
+  ) -> ServerResult {
+    task::block_in_place(|| {
+      let (inscriptions, more) = index.get_metaprotocol_inscriptions_paginated(
+        &metaprotocol,
+        PAGE_SIZE,
+        page_index.into_usize(),
+      )?;
+
+      let prev = page_index.checked_sub(1);
+      let next = more.then_some(page_index + 1);
+
+      Ok(if accept_json {
+        Json(api::Inscriptions {
+          ids: inscriptions,
+          page_index,
+          more,
+        })
+        .into_response()
+      } else {
+        MetaprotocolHtml {
+          metaprotocol,
+          inscriptions,
+          prev,
+          next,
         }
         .page(server_config)
         .into_response()

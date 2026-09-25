@@ -14,6 +14,8 @@ pub(crate) use {
   iframe::Iframe,
   input::InputHtml,
   inscriptions::InscriptionsHtml,
+  metaprotocol::MetaprotocolHtml,
+  metaprotocols::MetaprotocolsHtml,
   inscriptions_block::InscriptionsBlockHtml,
   metadata::MetadataHtml,
   output::OutputHtml,
@@ -50,6 +52,8 @@ pub mod inscriptions;
 mod inscriptions_block;
 mod item;
 mod metadata;
+mod metaprotocol;
+mod metaprotocols;
 pub mod output;
 mod parents;
 mod preview;

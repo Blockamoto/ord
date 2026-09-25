@@ -670,6 +670,54 @@ curl -s \
 <details>
   <summary>
     <code>GET</code>
+    <code><b>/r/inscription/&lt;INSCRIPTION_ID&gt;/metaprotocol</b></code>
+  </summary>
+
+### Description
+
+Metaprotocol identifier declared by an inscription.
+
+</details>
+
+<details>
+  <summary>
+    <code>GET</code>
+    <code><b>/r/metaprotocols</b></code>
+  </summary>
+
+### Description
+
+All indexed UTF-8 metaprotocol identifiers, ordered lexicographically. Identifiers are case-sensitive.
+
+</details>
+
+<details>
+  <summary>
+    <code>GET</code>
+    <code><b>/r/metaprotocol/&lt;METAPROTOCOL&gt;</b></code>
+  </summary>
+
+### Description
+
+The first 100 inscription ids which declare `METAPROTOCOL`, ordered by inscription sequence number.
+
+</details>
+
+<details>
+  <summary>
+    <code>GET</code>
+    <code><b>/r/metaprotocol/&lt;METAPROTOCOL&gt;/&lt;PAGE&gt;</b></code>
+  </summary>
+
+### Description
+
+The set of 100 inscription ids which declare `METAPROTOCOL` on `PAGE`.
+
+</details>
+
+<details>
+  <summary>
+    <code>GET</code>
     <code><b>/r/metadata/&lt;INSCRIPTION_ID&gt;</b></code>
   </summary>
 
