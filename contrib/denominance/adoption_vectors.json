@@ -1,0 +1,53 @@
+{
+  "version": "0.0.5-lab",
+  "purpose": "ordered source-map fixtures for spend-and-declare adoption",
+  "cases": [
+    {
+      "name": "exact_adoption",
+      "inputs": [100, 20],
+      "outputs": [100, 10],
+      "declared_vout": 0,
+      "target_vin": 0,
+      "expect": {"coverage": 100, "foreign": 0, "omitted": 0, "exact": true}
+    },
+    {
+      "name": "funder_first",
+      "inputs": [20, 100],
+      "outputs": [100, 10],
+      "declared_vout": 0,
+      "target_vin": 1,
+      "expect": {"coverage": 80, "foreign": 20, "omitted": 20, "exact": false}
+    },
+    {
+      "name": "change_before_declaration",
+      "inputs": [100, 20],
+      "outputs": [10, 100],
+      "declared_vout": 1,
+      "target_vin": 0,
+      "expect": {"coverage": 90, "foreign": 10, "omitted": 10, "exact": false}
+    },
+    {
+      "name": "partial_target",
+      "inputs": [100],
+      "outputs": [90],
+      "declared_vout": 0,
+      "target_vin": 0,
+      "expect": {"coverage": 90, "foreign": 0, "omitted": 10, "exact": false}
+    },
+    {
+      "name": "merge_two_inputs",
+      "inputs": [40, 60],
+      "outputs": [100],
+      "declared_vout": 0,
+      "expect_sources": ["vin0[0:40)", "vin1[0:60)"]
+    },
+    {
+      "name": "zero_target",
+      "inputs": [0, 10],
+      "outputs": [10],
+      "declared_vout": 0,
+      "target_vin": 0,
+      "expect": {"exact": false}
+    }
+  ]
+}
