@@ -1,18 +1,22 @@
-# Denominance Lab v0.0.2
+# Denominance Lab v0.0.3
 
 Status: experimental. Metaprotocol tag: `denom`.
 
-Denominance is a thin annotation over Bitcoin's ordered value flow. A
-declaration creates a checkpoint, and from that checkpoint forward the denom
-follows Ordinal Theory's FIFO input-to-output assignment.
+Denominance is a thin annotation over Bitcoin's ordered value flow. A valid
+declaration creates a checkpoint. From that checkpoint forward, denomination
+ranges follow the same FIFO input-to-output ordering used by Ordinal Theory.
+
+v0.0.3 adds deterministic multi-declaration rules and an explicit lifecycle
+accounting model. It also tightens burn handling to Ord's exact OP_RETURN
+predicate.
 
 ## Declaration identity
 
-A declaration is an inscription tagged with metaprotocol `denom`. The
-canonical denom identifier is the declaration inscription ID. Human-readable
-names are presentation only.
+A declaration is an inscription whose metaprotocol is exactly `denom`. The
+canonical denomination identifier is the declaration inscription ID.
+Human-readable names are presentation only.
 
-The original v0.0.1 form remains valid and means output-origin:
+The compact output-origin form remains valid:
 
 ```json
 {"v":1,"op":"declare","name":"optional display name"}
@@ -24,9 +28,10 @@ Equivalent explicit form:
 {"v":1,"op":"declare","origin":{"kind":"output"}}
 ```
 
-## Origin timing
+Rejected declarations do not create a denomination identifier or issued
+supply.
 
-v0.0.2 distinguishes *when* a declaration enters the value stream.
+## Origin timing
 
 ### Output origin: normative
 
@@ -34,14 +39,15 @@ v0.0.2 distinguishes *when* a declaration enters the value stream.
 {"v":1,"op":"declare","origin":{"kind":"output"}}
 ```
 
-The origin is the post-reveal output containing the declaration inscription.
-Ordinary transaction value flow is resolved first. The entire target output is
-then checkpointed as the new denom with declaration-relative offsets
-`[0,value)`.
+The origin is the post-reveal output in which Ord actually places the
+declaration inscription. The body does not carry a second `vout` selector.
 
-This is the cleanest mint-like form. Transaction fees are outside the new
-denom because the declaration begins after the reveal transaction has routed
-its inputs.
+Ordinary transaction value flow is resolved first. The entire containing
+output is then checkpointed as the new denomination with declaration-relative
+offsets `[0,value)`.
+
+Transaction fees are outside a new output-origin denomination because the
+declaration begins after the reveal transaction has routed its inputs.
 
 ### Input origin: experimental candidate
 
@@ -51,48 +57,66 @@ its inputs.
 
 The selected input prevout is checkpointed immediately before the declaration
 transaction is routed. The declaration therefore applies to the entire value
-of that existing UTXO and then follows through the same transaction.
+of that existing UTXO and follows through the same transaction.
 
-This gives a useful colored-coin-style operation without ancestry retracing:
-the spender takes an existing output and intentionally denominates it while
-spending it. If some of that input becomes fee, that fee is part of the denom
-and may later reappear through the block coinbase.
+This is the strongest current candidate for intentional colored-coin-style
+creation through a spend. The spender must actually consume the target UTXO,
+which gives the declaration a natural participation boundary without ancestry
+retracing. Any selected value that becomes fee remains part of the
+denomination and enters the block fee stream.
 
-This form is not yet normative because inscription/reveal ordering and conflict
-handling still need to be integrated with ord's indexer rather than only the
-reference model.
+Input origin remains experimental until exercised against Ord's real indexer
+fixtures.
 
 ### Transaction origin: lab-only
 
-A transaction-wide origin colors the complete ordered input stream immediately
-before routing. It is deterministic, but surprisingly broad: it combines every
-input into one declaration-relative range and includes the eventual fee tail.
-The lab keeps this variant for comparison but does not recommend standardizing
-it yet.
+A transaction-wide origin checkpoints the complete ordered input stream before
+routing. It is deterministic but broad: every input is included and the fee
+tail is part of the denomination. The lab keeps this variant for comparison
+but does not recommend standardizing it yet.
 
 ### Remote live-UTXO checkpoint: lab-only
 
-An inscription could name an already-existing unspent outpoint and checkpoint
-that UTXO from the declaration point forward. Importantly, this does **not**
-require tracing its ancestry to coinbase. The output's present value is enough
-to create a new forward checkpoint.
+A declaration can technically checkpoint an old output that is still unspent
+without reconstructing its ancestry. Its present value is sufficient to begin
+forward tracking.
 
 The unresolved problem is authorization: a remote declaration can otherwise
 label somebody else's UTXO without their participation. Until there is a clean
-ownership/consent rule, remote outpoint declarations are non-normative.
+consent rule, remote outpoint declarations are non-normative.
 
-A declaration that claims historical effect *before* its checkpoint is a
-different feature. That genuinely requires forward/reverse reconstruction and
-remains deferred.
+A declaration that claims historical effect before its checkpoint is a
+different feature. That requires historical reconstruction and remains
+deferred.
+
+## Deterministic batch semantics
+
+All `denom` declarations created in a transaction are evaluated as a set, not
+with a first-wins rule.
+
+1. Parse every declaration independently.
+2. Group input-origin declarations by `vin`.
+3. If more than one declaration claims the same input origin, every declaration
+   in that group fails with `conflicting-origin`.
+4. Apply valid, disjoint input-origin declarations before FIFO value routing.
+5. Resolve ordinary transaction value flow and Ord inscription placement.
+6. Group output-origin declarations by their resolved containing `vout`.
+7. If more than one output-origin declaration resolves to the same output,
+   every declaration in that group fails with `conflicting-origin`.
+8. Apply valid, disjoint output-origin declarations after routing.
+9. If an output already contains an active Denominance range, a new
+   output-origin declaration fails rather than recoloring it.
+
+This makes validity independent of declaration enumeration order.
 
 ## Ordered value flow
 
 For a non-coinbase transaction:
 
 1. concatenate inputs in transaction input order;
-2. preserve the established value order within each input;
+2. preserve established value order within each input;
 3. cut the stream into outputs in transaction output order;
-4. the unassigned tail is the transaction fee stream.
+4. the unassigned tail becomes that transaction's fee stream.
 
 A tracked interval is:
 
@@ -100,28 +124,74 @@ A tracked interval is:
 { denom_id, origin_start, length }
 ```
 
-Splitting is slicing. Merging concatenates streams without blending identities.
-A swap has no address-level semantic layer: input/output order alone determines
-where denom ranges land.
+Splitting is interval slicing. Merging concatenates streams without blending
+identities. A swap has no address-level semantic layer: input/output order
+alone determines where denomination ranges land.
+
+## Lifecycle accounting
+
+Each accepted declaration has an immutable `issued` value equal to its origin
+value at the checkpoint.
+
+At any indexing boundary, denomination value belongs to one of four buckets:
+
+- `active`: value held by spendable outputs;
+- `pending_fee`: value currently in transaction fees, before the block
+  coinbase routes the fee stream;
+- `burned`: value delivered to an OP_RETURN output;
+- `lost`: value left unclaimed by coinbase.
+
+The conservation invariant is:
+
+```text
+issued = active + pending_fee + burned + lost
+```
+
+After the coinbase transaction has been processed for a block,
+`pending_fee = 0`.
+
+`issued` is provenance/accounting metadata, not a promise that all issued
+value remains spendable.
 
 ## Fees and coinbase
 
-A denom paid as fees is not automatically destroyed. The coinbase stream is
-modeled as subsidy followed by transaction fee streams in block transaction
-order. Denom fee ranges can therefore reappear in coinbase outputs.
+A denomination paid as fees is not destroyed. Fee streams are appended after
+the block subsidy in transaction order, matching Ordinal Theory's coinbase
+routing model.
 
-If the miner underclaims the available reward, ranges in the unassigned tail
-are lost.
+The coinbase then routes that combined stream through its outputs. A
+denomination range can therefore:
+
+- re-enter a spendable miner output;
+- land in an OP_RETURN output and become burned;
+- remain in an underclaimed tail and become lost.
 
 ## Burns
 
-A positive-value provably unspendable output is a terminal sink. Denominance
-records the affected ranges as burned/unspendable while preserving provenance.
+For v0.0.3, burn detection uses the same exact predicate already used by Ord's
+inscription updater: `script_pubkey.is_op_return()`.
+
+This is intentionally narrower than an open-ended "provably unspendable"
+classification and avoids indexer disagreement.
+
+Raw routing may show a denomination range landing in an OP_RETURN output, but
+that output MUST NOT be persisted as an active denomination-bearing UTXO.
+Instead, the range is recorded in the burned bucket.
+
+An output-origin declaration whose containing output is OP_RETURN is valid but
+is born burned:
+
+```text
+issued = output value
+active = 0
+burned = output value
+```
+
 A zero-value OP_RETURN burns no sats.
 
 ## Provenance
 
-Each range retains:
+Each denomination range retains:
 
 ```text
 declaration inscription ID
@@ -135,40 +205,52 @@ For input-origin declarations, offsets are relative to the selected input
 prevout. For output-origin declarations, offsets are relative to the declared
 post-reveal output.
 
+Routing never rewrites `origin_start`; splits only slice the original range.
+
 ## Conflict and failure rules
 
 A declaration fails if:
 
+- its body is invalid for the supported declaration version;
 - its selected origin has zero value;
-- an input/output index is out of range;
-- the selected origin already contains an active Denominance range;
-- two declarations attempt to claim the same origin range in the same indexing
-  step, until a deterministic multi-declaration rule is specified.
+- an input index is out of range;
+- an output-origin inscription does not resolve to a transaction output;
+- its selected origin already contains an active Denominance range;
+- another declaration in the same transaction claims the same origin.
 
-External rare-sat classes, inscriptions, and other colored-coin protocols do
-not count as Denominance overlap.
+External rare-sat classes, inscriptions, and unrelated colored-coin protocols
+do not count as Denominance overlap.
 
 The no-recoloring rule is intentionally conservative. Transformation,
-reissuance, wrapping, and explicit replacement can be designed later instead
-of emerging accidentally from declaration order.
+reissuance, wrapping, and explicit replacement should be designed later rather
+than emerge accidentally from declaration order.
 
 ## Minimal index
 
-Forward indexing can remain interval-based:
+A forward index can remain interval-based:
 
 ```text
 denom_id -> {
   declaration_inscription,
   origin_kind,
   origin_ref,
-  origin_value
+  issued
 }
 
 outpoint -> ordered [
   { output_offset, denom_id, origin_start, length },
   ...
 ]
+
+denom_id -> {
+  burned,
+  lost
+}
 ```
+
+Only spendable outputs belong in the `outpoint` map. Fee intervals may remain
+an in-memory block-local stream until coinbase processing. Burned and lost
+totals can be stored directly or derived from append-only events.
 
 A spent annotated output only needs its local interval list. The indexer places
 those intervals at Bitcoin value offsets, concatenates inputs, cuts outputs,
@@ -177,34 +259,40 @@ and carries the fee tail into coinbase handling.
 ## Reference experiments
 
 `flow.py` tests the forward-flow kernel: split, merge, fees, coinbase
-re-entry, underclaimed reward loss, burns, and order-sensitive swaps.
+re-entry, coinbase burns, underclaimed reward loss, ordinary burns, and
+order-sensitive swaps.
 
-`origins.py` compares declaration timing. Its tests show:
+`origins.py` compares declaration timing and the historical/live-checkpoint
+boundary.
 
-- input-origin can denominate an existing UTXO at the moment it is spent;
-- input-origin naturally carries a denom into the fee tail;
-- output-origin starts after the transaction, so its fee is not part of supply;
-- transaction-wide origin is deterministic but broad;
-- a live-UTXO checkpoint needs no ancestry reconstruction;
-- active Denominance ranges cannot be silently recolored.
+`engine.py` tests declaration parsing, batch conflict rules, disjoint
+multi-origin declarations, recoloring rejection, invalid origins, and
+born-burned output declarations.
+
+`ledger.py` tests the lifecycle buckets and conservation invariant. It
+specifically guards against the subtle bug of counting OP_RETURN output ranges
+as both active and burned.
 
 Run:
 
 ```bash
 python3 contrib/denominance/flow.py
 python3 contrib/denominance/origins.py
+python3 contrib/denominance/engine.py
+python3 contrib/denominance/ledger.py
 ```
 
 ## Current research boundary
 
-The useful distinction is now:
+The useful distinction remains:
 
-- **checkpointing an old but still-live UTXO today** does not require historical
+- checkpointing an old but still-live UTXO today does not require historical
   retracing;
-- **claiming that a denom existed before its declaration checkpoint** does.
+- claiming that a denomination existed before its declaration checkpoint does.
 
-The first can become practical with a sound authorization rule. The second
-remains the expensive Output Retracing problem and stays in the back pocket.
+The first can become practical with sound participation/authorization. The
+second remains the expensive Output Retracing problem and stays in the back
+pocket.
 
 Deferred: historical retroactivity, transformation/reissuance, wallet
-construction, reorg policy, proof formats, and indexer integration.
+construction, reorg policy, proof formats, and persistent Ord indexer tables.
