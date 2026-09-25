@@ -1,27 +1,22 @@
 # Denominance Lab
 
-Run 4 complete.
+Run 9 complete.
 
-v0.0.3 now has an explicit lifecycle accounting model:
+Added `sparse_index.py`, a persistent interval-index experiment. It stores
+only denomination-bearing ranges, reconstructs bare gaps before ordered routing,
+then compresses routed outputs back to sparse ranges.
 
-```text
-issued = active + pending_fee + burned + lost
-```
+The test result is that persistent state needs two different offsets:
+`output_offset` for current UTXO placement and `origin_start` for immutable
+declaration provenance. The indexed output's total value is also required to
+reconstruct the gaps.
 
-The new `ledger.py` experiment tests that invariant across input-origin
-creation, ordinary OP_RETURN burns, born-burned output origins, fee re-entry,
-coinbase burns, underclaimed coinbase loss, and rejected declaration conflicts.
+Seven tests pass locally, including sparse round trips, split/merge routing,
+malformed overlap rejection, bounds checks, and a compact layout renderer.
 
-A real edge case was found and fixed in the reference kernel: coinbase routing
-previously returned only routed and lost ranges, so a denomination carried in
-fees and then paid into a coinbase OP_RETURN was not exposed as burned.
-`coinbase()` now reports burned ranges too.
+The standard direction for v0.0.5 is to keep output-origin normative and treat
+spend-and-declare of an old live UTXO as a wallet construction. Exact source
+preservation is provenance metadata, not declaration validity.
 
-The standard also now says that raw OP_RETURN placement is not live UTXO state.
-Only spendable outputs enter the forward outpoint index. Burn detection is
-pinned to Ord's existing `script_pubkey.is_op_return()` predicate.
-
-New/modified accounting tests: 13 passing locally (7 flow + 6 ledger).
-
-Next: build a small Rust fixture module against real `bitcoin::Transaction`
-and Ord inscription placement, with no persistent tables yet.
+Next: reproduce these sparse fixtures in Rust against real transaction and Ord
+inscription-placement types before adding persistent database tables.
