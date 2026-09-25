@@ -514,6 +514,109 @@ fn inscription_metadata() {
 }
 
 #[test]
+fn metaprotocol_index_and_recursive_endpoints() {
+  let core = mockcore::spawn();
+  let ord = TestServer::spawn(&core);
+
+  create_wallet(&core, &ord);
+
+  core.mine_blocks(1);
+
+  let denom = CommandBuilder::new(
+    "wallet inscribe --fee-rate 1 --metaprotocol denom --file denom.txt",
+  )
+  .write("denom.txt", "DENOM")
+  .core(&core)
+  .ord(&ord)
+  .run_and_deserialize_output::<Batch>()
+  .inscriptions[0]
+    .id;
+
+  core.mine_blocks(1);
+
+  let capitalized = CommandBuilder::new(
+    "wallet inscribe --fee-rate 1 --metaprotocol Denom --file capitalized.txt",
+  )
+  .write("capitalized.txt", "DENOM")
+  .core(&core)
+  .ord(&ord)
+  .run_and_deserialize_output::<Batch>()
+  .inscriptions[0]
+    .id;
+
+  core.mine_blocks(1);
+
+  assert_eq!(
+    ord
+      .request(format!("/r/inscription/{denom}/metaprotocol"))
+      .json::<String>()
+      .unwrap(),
+    "denom"
+  );
+
+  assert_eq!(
+    ord.request("/r/metaprotocols").json::<Vec<String>>().unwrap(),
+    vec!["Denom".to_string(), "denom".to_string()]
+  );
+
+  assert_eq!(
+    ord
+      .request("/r/metaprotocol/denom")
+      .json::<api::Inscriptions>()
+      .unwrap(),
+    api::Inscriptions {
+      ids: vec![denom],
+      more: false,
+      page_index: 0,
+    }
+  );
+
+  assert_eq!(
+    ord
+      .request("/r/metaprotocol/Denom")
+      .json::<api::Inscriptions>()
+      .unwrap(),
+    api::Inscriptions {
+      ids: vec![capitalized],
+      more: false,
+      page_index: 0,
+    }
+  );
+
+  ord.assert_response_regex(
+    "/metaprotocols",
+    ".*<h1>Metaprotocols</h1>.*href=/metaprotocol/Denom>Denom</a>.*href=/metaprotocol/denom>denom</a>.*",
+  );
+
+  ord.assert_response_regex(
+    "/metaprotocol/denom",
+    format!(".*<h1>Metaprotocol denom</h1>.*href=/inscription/{denom}>.*"),
+  );
+
+  ord.assert_response_regex(
+    format!("/inscription/{denom}"),
+    ".*<dt>metaprotocol</dt>.*<dd><a href=/metaprotocol/denom>denom</a></dd>.*",
+  );
+}
+
+#[test]
+fn recursive_metaprotocol_endpoint_returns_404_without_metaprotocol() {
+  let core = mockcore::spawn();
+  let ord = TestServer::spawn(&core);
+
+  create_wallet(&core, &ord);
+
+  let (inscription, _) = inscribe(&core, &ord);
+
+  assert_eq!(
+    ord
+      .request(format!("/r/inscription/{inscription}/metaprotocol"))
+      .status(),
+    StatusCode::NOT_FOUND
+  );
+}
+
+#[test]
 fn recursive_inscription_endpoint() {
   let core = mockcore::spawn();
   let ord = TestServer::spawn_with_server_args(&core, &["--index-sats"], &[]);

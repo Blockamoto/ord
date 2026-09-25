@@ -102,7 +102,7 @@
 %% }
 %% if let Some(metaprotocol) = self.inscription.metaprotocol() {
   <dt>metaprotocol</dt>
-  <dd>{{ metaprotocol }}</dd>
+  <dd><a href=/metaprotocol/{{ metaprotocol }}>{{ metaprotocol }}</a></dd>
 %% }
 %% if self.inscription.content_length().is_some() || self.inscription.delegate().is_some() {
 %% if let Some(delegate) = self.inscription.delegate() {
