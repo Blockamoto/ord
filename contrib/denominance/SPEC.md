@@ -1,4 +1,4 @@
-# Denominance Lab v0.0.3
+# Denominance Lab v0.0.4
 
 Status: experimental. Metaprotocol tag: `denom`.
 
@@ -6,9 +6,11 @@ Denominance is a thin annotation over Bitcoin's ordered value flow. A valid
 declaration creates a checkpoint. From that checkpoint forward, denomination
 ranges follow the same FIFO input-to-output ordering used by Ordinal Theory.
 
-v0.0.3 adds deterministic multi-declaration rules and an explicit lifecycle
-accounting model. It also tightens burn handling to Ord's exact OP_RETURN
-predicate.
+v0.0.4 narrows the normative v0 surface to output-origin declarations.
+Input-origin remains a useful laboratory primitive, but spending a selected
+UTXO is not treated as proof that its owner consented to a declaration carried
+elsewhere in the transaction. The lab now separates deterministic value
+routing from ownership/consent authentication.
 
 ## Declaration identity
 
@@ -49,24 +51,37 @@ offsets `[0,value)`.
 Transaction fees are outside a new output-origin denomination because the
 declaration begins after the reveal transaction has routed its inputs.
 
-### Input origin: experimental candidate
+### Input origin: lab-only pending explicit consent
 
 ```json
 {"v":1,"op":"declare","origin":{"kind":"input","vin":1}}
 ```
 
-The selected input prevout is checkpointed immediately before the declaration
-transaction is routed. The declaration therefore applies to the entire value
-of that existing UTXO and follows through the same transaction.
+The selected input prevout can be checkpointed immediately before transaction
+routing, and the resulting denomination can deterministically follow the same
+FIFO value flow through outputs and fees.
 
-This is the strongest current candidate for intentional colored-coin-style
-creation through a spend. The spender must actually consume the target UTXO,
-which gives the declaration a natural participation boundary without ancestry
-retracing. Any selected value that becomes fee remains part of the
-denomination and enters the block fee stream.
+However, spending the target UTXO is not itself a Denominance consent rule.
+The declaration envelope may be carried by another input, so the target input's
+ordinary spend authorization must not be assumed to authenticate arbitrary
+declaration bytes elsewhere in the transaction.
 
-Input origin remains experimental until exercised against Ord's real indexer
-fixtures.
+For that reason, input-origin is no longer a normative v0 declaration form.
+A normative v0 indexer MUST reject it as an unsupported origin rather than
+silently treating spend participation as consent.
+
+The current proof-binding experiment proposes that any future input-origin
+extension authenticate a domain-separated message containing both the exact
+declaration inscription ID and exact target outpoint:
+
+```text
+denom:v1:input-origin:<declaration_inscription_id>:<prevout_txid>:<prevout_vout>
+```
+
+The proof scheme itself is deliberately not standardized yet. `consent.py`
+uses a deterministic HMAC harness only to test the binding properties: changing
+either the declaration ID or target outpoint invalidates the proof, while a
+proof that omits the outpoint can be retargeted.
 
 ### Transaction origin: lab-only
 
@@ -82,17 +97,33 @@ without reconstructing its ancestry. Its present value is sufficient to begin
 forward tracking.
 
 The unresolved problem is authorization: a remote declaration can otherwise
-label somebody else's UTXO without their participation. Until there is a clean
-consent rule, remote outpoint declarations are non-normative.
+label somebody else's UTXO without their participation. The same proof-binding
+shape explored for input-origin could eventually authorize a remote live-UTXO
+checkpoint, because the authenticated message binds both the declaration and
+the exact outpoint. That remains experimental until a Bitcoin-native proof
+scheme and verification rules are specified.
 
 A declaration that claims historical effect before its checkpoint is a
 different feature. That requires historical reconstruction and remains
 deferred.
 
-## Deterministic batch semantics
+## Normative v0 profile
 
-All `denom` declarations created in a transaction are evaluated as a set, not
-with a first-wins rule.
+For v0.0.4, a declaration is normative only when `origin` is omitted or when
+`origin.kind` is exactly `"output"`.
+
+Input-origin, transaction-origin, and remote-outpoint declarations remain lab
+experiments. A conforming v0 indexer MUST NOT assign supply for those forms.
+This deliberately keeps the first interoperable profile small: the declaration
+inscription itself identifies the denomination, Ord determines its containing
+output, and Denominance begins at that output after the reveal transaction has
+finished routing value.
+
+## Deterministic batch semantics (lab engine)
+
+The laboratory engine evaluates all `denom` declarations created in a
+transaction as a set, not with a first-wins rule. Normative v0 uses only the
+output-origin subset of these rules; the input-origin steps remain experiments.
 
 1. Parse every declaration independently.
 2. Group input-origin declarations by `vin`.
@@ -273,6 +304,11 @@ born-burned output declarations.
 specifically guards against the subtle bug of counting OP_RETURN output ranges
 as both active and burned.
 
+`consent.py` tests declaration/outpoint proof binding. Its HMAC signer is only
+a test harness: the useful result is that a consent proof must authenticate the
+exact declaration ID and exact target outpoint, and that spend participation
+alone is not promoted into a protocol consent rule.
+
 Run:
 
 ```bash
@@ -280,6 +316,7 @@ python3 contrib/denominance/flow.py
 python3 contrib/denominance/origins.py
 python3 contrib/denominance/engine.py
 python3 contrib/denominance/ledger.py
+python3 contrib/denominance/consent.py
 ```
 
 ## Current research boundary
@@ -295,4 +332,5 @@ second remains the expensive Output Retracing problem and stays in the back
 pocket.
 
 Deferred: historical retroactivity, transformation/reissuance, wallet
-construction, reorg policy, proof formats, and persistent Ord indexer tables.
+construction, reorg policy, a Bitcoin-native consent proof format for
+non-output origins, and persistent Ord indexer tables.
