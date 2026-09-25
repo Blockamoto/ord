@@ -1,22 +1,32 @@
 # Denominance Lab
 
-Run 9 complete.
+Run 12 complete.
 
-Added `sparse_index.py`, a persistent interval-index experiment. It stores
-only denomination-bearing ranges, reconstructs bare gaps before ordered routing,
-then compresses routed outputs back to sparse ranges.
+Added `block_flow.py`, a block-level fee settlement experiment with seven
+passing tests. It models subsidy first, then each non-coinbase transaction's
+complete fee tail in block transaction order, followed by normal ordered
+coinbase output routing.
 
-The test result is that persistent state needs two different offsets:
-`output_offset` for current UTXO placement and `origin_start` for immutable
-declaration provenance. The indexed output's total value is also required to
-reconstruct the gaps.
+The main finding is that bare fee sats are consensus-relevant spacing. An
+indexer may keep only Denominance-bearing fee ranges, but only if it also keeps
+the full fee value and each range's fee-stream offset for every transaction.
+Dropping the bare gaps changes where later denomination ranges land in the
+coinbase.
 
-Seven tests pass locally, including sparse round trips, split/merge routing,
-malformed overlap rejection, bounds checks, and a compact layout renderer.
+The tests cover transaction-order sensitivity, bare spacing between denoms,
+multi-transaction OP_RETURN burns, complete and partial coinbase underclaims,
+and block-local pending-fee settlement. A partial underclaim slices the last
+Denominance interval exactly; reversing transaction order can change which
+denomination reaches which miner output.
 
-The standard direction for v0.0.5 is to keep output-origin normative and treat
-spend-and-declare of an old live UTXO as a wallet construction. Exact source
-preservation is provenance metadata, not declaration validity.
+I also checked the current Ord updater: non-coinbase fee flotsam is offset by
+the accumulated block reward and `self.reward` is increased transaction by
+transaction, so the lab's block ordering matches Ord's existing inscription
+fee-routing structure.
 
-Next: reproduce these sparse fixtures in Rust against real transaction and Ord
-inscription-placement types before adding persistent database tables.
+v0.0.5 now records spend-and-declare adoption, routed-state no-recoloring, and
+the block-level fee-spacing rule.
+
+Next: make the block fee representation sparse in the same style as
+`sparse_index.py`, then round-trip it through coinbase settlement and prove
+that sparse and fully inflated block processing are identical.

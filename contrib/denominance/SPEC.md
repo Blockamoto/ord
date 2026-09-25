@@ -1,4 +1,4 @@
-# Denominance Lab v0.0.4
+# Denominance Lab v0.0.5
 
 Status: experimental. Metaprotocol tag: `denom`.
 
@@ -6,11 +6,12 @@ Denominance is a thin annotation over Bitcoin's ordered value flow. A valid
 declaration creates a checkpoint. From that checkpoint forward, denomination
 ranges follow the same FIFO input-to-output ordering used by Ordinal Theory.
 
-v0.0.4 narrows the normative v0 surface to output-origin declarations.
-Input-origin remains a useful laboratory primitive, but spending a selected
-UTXO is not treated as proof that its owner consented to a declaration carried
-elsewhere in the transaction. The lab now separates deterministic value
-routing from ownership/consent authentication.
+v0.0.5 keeps the normative v0 surface output-origin only, adds a practical
+spend-and-declare adoption pattern for existing live UTXOs, tightens the
+no-recoloring rule to use reveal-transaction routed state, and makes block-level
+fee ordering explicit. Input-origin remains a laboratory primitive: the lab
+continues to separate deterministic value routing from ownership/consent
+authentication.
 
 ## Declaration identity
 
@@ -107,9 +108,26 @@ A declaration that claims historical effect before its checkpoint is a
 different feature. That requires historical reconstruction and remains
 deferred.
 
+### Spend-and-declare adoption: normative construction pattern
+
+An owner can adopt an existing live UTXO into Denominance without a remote
+checkpoint and without historical retracing: spend it into an output that
+contains a normal output-origin declaration.
+
+The denomination begins at the new output checkpoint. If transaction ordering
+preserves the target UTXO's exact sat set in that output, the indexer MAY expose
+that fact as provenance metadata. Exact preservation is not a declaration
+validity condition. Funding sats may mix into the declared output and target
+sats may be omitted without changing the validity of the output-origin
+declaration.
+
+This construction does not turn Denominance metadata into a Bitcoin ownership
+primitive. Bitcoin signatures authorize the spend; Denominance deterministically
+annotates the resolved output.
+
 ## Normative v0 profile
 
-For v0.0.4, a declaration is normative only when `origin` is omitted or when
+For v0.0.5, a declaration is normative only when `origin` is omitted or when
 `origin.kind` is exactly `"output"`.
 
 Input-origin, transaction-origin, and remote-outpoint declarations remain lab
@@ -135,8 +153,10 @@ output-origin subset of these rules; the input-origin steps remain experiments.
 7. If more than one output-origin declaration resolves to the same output,
    every declaration in that group fails with `conflicting-origin`.
 8. Apply valid, disjoint output-origin declarations after routing.
-9. If an output already contains an active Denominance range, a new
-   output-origin declaration fails rather than recoloring it.
+9. If any pre-existing Denominance-bearing value was routed into the resolved
+   output by the reveal transaction, a new output-origin declaration fails with
+   `conflicting-routed-denom`. This check uses routed transaction state, not
+   only the persistent active UTXO index.
 
 This makes validity independent of declaration enumeration order.
 
@@ -187,10 +207,17 @@ value remains spendable.
 ## Fees and coinbase
 
 A denomination paid as fees is not destroyed. Fee streams are appended after
-the block subsidy in transaction order, matching Ordinal Theory's coinbase
-routing model.
+the block subsidy in non-coinbase transaction order, matching Ordinal Theory's
+coinbase routing model. Within each transaction fee stream, the exact ordered
+tail is preserved.
 
-The coinbase then routes that combined stream through its outputs. A
+Bare fee sats are consensus-relevant spacing even though they carry no
+Denominance identity. An indexer MUST NOT concatenate only the denominated fee
+ranges or otherwise erase bare gaps before coinbase settlement. A sparse
+block-local representation is valid only if it retains each transaction's total
+fee value and the value offsets of its Denominance ranges.
+
+The coinbase then routes the combined subsidy-plus-fee stream through its outputs. A
 denomination range can therefore:
 
 - re-enter a spendable miner output;
@@ -199,8 +226,8 @@ denomination range can therefore:
 
 ## Burns
 
-For v0.0.3, burn detection uses the same exact predicate already used by Ord's
-inscription updater: `script_pubkey.is_op_return()`.
+For normative v0, burn detection uses the same exact predicate already used by
+Ord's inscription updater: `script_pubkey.is_op_return()`.
 
 This is intentionally narrower than an open-ended "provably unspendable"
 classification and avoids indexer disagreement.
@@ -246,7 +273,9 @@ A declaration fails if:
 - its selected origin has zero value;
 - an input index is out of range;
 - an output-origin inscription does not resolve to a transaction output;
-- its selected origin already contains an active Denominance range;
+- a normative output-origin resolves to an output into which any existing
+  Denominance-bearing value was routed by the reveal transaction;
+- a lab-only input origin overlaps an existing active Denominance range;
 - another declaration in the same transaction claims the same origin.
 
 External rare-sat classes, inscriptions, and unrelated colored-coin protocols
@@ -280,8 +309,10 @@ denom_id -> {
 ```
 
 Only spendable outputs belong in the `outpoint` map. Fee intervals may remain
-an in-memory block-local stream until coinbase processing. Burned and lost
-totals can be stored directly or derived from append-only events.
+an in-memory block-local stream until coinbase processing, but that stream must
+retain bare-value spacing. If represented sparsely, store each transaction's
+total fee value plus ordered Denominance ranges with fee-stream offsets. Burned
+and lost totals can be stored directly or derived from append-only events.
 
 A spent annotated output only needs its local interval list. The indexer places
 those intervals at Bitcoin value offsets, concatenates inputs, cuts outputs,
@@ -309,6 +340,12 @@ a test harness: the useful result is that a consent proof must authenticate the
 exact declaration ID and exact target outpoint, and that spend participation
 alone is not promoted into a protocol consent rule.
 
+`block_flow.py` tests block-level fee ordering, bare fee spacing, coinbase
+splits, OP_RETURN burns, partial underclaims, and terminal loss. It guards
+against the subtle indexing error of persisting only Denominance-bearing fee
+ranges and forgetting the bare sats that determine their eventual coinbase
+offsets.
+
 Run:
 
 ```bash
@@ -317,6 +354,7 @@ python3 contrib/denominance/origins.py
 python3 contrib/denominance/engine.py
 python3 contrib/denominance/ledger.py
 python3 contrib/denominance/consent.py
+python3 contrib/denominance/block_flow.py
 ```
 
 ## Current research boundary
